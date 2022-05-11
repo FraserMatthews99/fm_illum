@@ -27,7 +27,7 @@ fi
 firstLine=`head -1 illum/__init__.py`
 version=${firstLine:15:-1}
 
-F77="gfortran"
+F77="${F77} ${FFLAGS} "
 folder=`pwd`
 chmod a+x make*
 
