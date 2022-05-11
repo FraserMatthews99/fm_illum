@@ -77,9 +77,10 @@ c
       integer verbose                                                     ! verbose = 1 to have more print out, 0 for silent
       parameter (pi=3.141592654)
       parameter (pix4=4.*pi)
+      character(200) arg1,arg2                                           ! Command line argument
+      character(200) infile,outfile                                      ! Illumina .in file
       character*72 mnaf                                                   ! Terrain elevation file
       character*72 diffil                                                 ! Aerosol file
-      character*72 outfile                                                ! Results file
       character*72 pclf,pclgp                                             ! Files containing contribution and sensitivity maps
       character*72 pclimg,pcwimg
       character*72 basenm                                                 ! Base name of files
@@ -254,6 +255,8 @@ c                                                                         ! a li
       real bandw                                                          ! bandwidth of the spectral bin
       real tabs                                                           ! TOA transmittance related to molecule absorption
       integer obsobs                                                      ! flag to activate the direct light obstacle blocking aroud the observer.
+      real start_time, end_time
+      call cpu_time(start_time)
       verbose=1                                                           ! Very little printout=0, Many printout = 1, even more=2
       diamobj=1.                                                          ! A dummy value for the diameter of the objective of the instrument used by the observer.
       volu=0.
@@ -270,8 +273,14 @@ c                                                                         ! a li
         print*,'Starting ILLUMINA computations...'
       endif
 c reading of the fichier d'entree (illumina.in)
-      print*,'Reading illumina.in input file'
-      open(unit=1,file='illumina.in',status='old')
+      if (iargc()<1) then
+        infile='illumina.in'
+      else
+        call getarg(1,arg1)
+        read(arg1,*)infile
+      endif
+      print*,'Reading illumina input file', infile
+      open(unit=1,file=infile,status='old')
         read(1,*)
         read(1,*) basenm
         read(1,*) dx,dy
@@ -353,7 +362,12 @@ c computing the actual AOD at the wavelength lambda
 c  determine the Length of basenm
       lenbase=index(basenm,' ')-1
       mnaf=basenm(1:lenbase)//'_topogra.bin'                              ! determine the names of input and output files
-      outfile=basenm(1:lenbase)//'.out'
+      if (iargc()<2) then
+        outfile=basenm(1:lenbase)//'.out'
+      else
+        call getarg(2,arg2)
+        read(arg2,*)outfile
+      endif      
       pclf=basenm(1:lenbase)//'_pcl.txt'
       pclimg=basenm(1:lenbase)//'_pcl.bin'
       pcwimg=basenm(1:lenbase)//'_pcw.bin'
@@ -1942,7 +1956,8 @@ c          close(unit=9)
 c
 c End of calculation of the scattered radiances
 c =================================
-
+      call cpu_time(end_time)
+      print*,"TIME TAKEN: ",end_time-start_time, "seconds"
         if (verbose.ge.1) print*,'======================================
      +==============='
         print*,'         Direct irradiance from sources (W/m**2/nm)'
