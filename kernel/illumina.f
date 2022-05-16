@@ -77,8 +77,8 @@ c
       integer verbose                                                     ! verbose = 1 to have more print out, 0 for silent
       parameter (pi=3.141592654)
       parameter (pix4=4.*pi)
-      character(200) arg1,arg2                                           ! Command line argument
-      character(200) infile,outfile                                      ! Illumina .in file
+      character(200) arg1,arg2                                            ! PENV CHANGE: Command line argument addition
+      character(200) infile,outfile                                       ! PENV CHANGE: Illumina .in and .out file names
       character*72 mnaf                                                   ! Terrain elevation file
       character*72 diffil                                                 ! Aerosol file
       character*72 pclf,pclgp                                             ! Files containing contribution and sensitivity maps
@@ -273,6 +273,7 @@ c                                                                         ! a li
         print*,'Starting ILLUMINA computations...'
       endif
 c reading of the fichier d'entree (illumina.in)
+c PENV CHANGE: Read a custom-named input file if supplied as argument
       if (iargc()<1) then
         infile='illumina.in'
       else
@@ -362,6 +363,7 @@ c computing the actual AOD at the wavelength lambda
 c  determine the Length of basenm
       lenbase=index(basenm,' ')-1
       mnaf=basenm(1:lenbase)//'_topogra.bin'                              ! determine the names of input and output files
+c PENV CHANGE: Custom output file name
       if (iargc()<2) then
         outfile=basenm(1:lenbase)//'.out'
       else
@@ -1956,6 +1958,7 @@ c          close(unit=9)
 c
 c End of calculation of the scattered radiances
 c =================================
+c PENV CHANGE: Timing the script
       call cpu_time(end_time)
       print*,"TIME TAKEN: ",end_time-start_time, "seconds"
         if (verbose.ge.1) print*,'======================================
