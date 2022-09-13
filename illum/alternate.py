@@ -5,16 +5,16 @@ import shutil
 from glob import glob
 
 import click
+import illum.AngularPowerDistribution as APD
+import illum.MultiScaleData as MSD
+import illum.pytools as pt
+import illum.SpectralPowerDistribution as SPD
 import numpy as np
 import yaml
-from scipy.interpolate import interp1d as interp
-
-from illum import MultiScaleData as MSD
-from illum import pytools as pt
 from illum.inventory import from_lamps, from_zones
 
 
-@click.command()
+@click.command(name="alternate")
 @click.argument("name")
 @click.option(
     "-z",
@@ -28,12 +28,16 @@ from illum.inventory import from_lamps, from_zones
     type=click.Path(exists=True),
     help="New discrete lights inventory filename.",
 )
-def alternate(name, zones, lights):
+def CLI_alternate(name, zones, lights):
     """Generates an alternate scenario at constant lumen.
 
     This scenatio will be based on the content of the `Inputs` folder and
     will be placed in a folder named `Inputs_NAME`.
     """
+    alternate(name, zones, lights)
+
+
+def alternate(name, zones, lights):
     if zones is None and lights is None:
         print("ERROR: At least one of 'zones' and 'lights' must be provided.")
         raise SystemExit
@@ -89,30 +93,44 @@ def alternate(name, zones, lights):
     print("\nLoading data...")
 
     # Angular distribution (normalised to 1)
-    lop_files = glob("Lights/*.lop")
-    angles = np.arange(181, dtype=float)
+    def parse_key(fname):
+        return os.path.basename(fname).rsplit(".", 1)[0].split("_", 1)[0]
+
+    angles = np.arange(181)
     lop = {
-        os.path.basename(s)
-        .rsplit(".", 1)[0]
-        .split("_", 1)[0]: pt.load_lop(angles, s)
-        for s in lop_files
+        parse_key(fname): APD.from_txt(fname).normalize()
+        for fname in glob("Lights/*.lop") + glob("Lights/*.LOP")
+    }
+    lop.update(
+        {
+            parse_key(fname): APD.from_ies(fname).normalize()
+            for fname in glob("Lights/*.ies") + glob("Lights/*.IES")
+        }
+    )
+    lop = {
+        key: apd.normalize().interpolate(step=1) for key, apd in lop.items()
     }
 
     # Spectral distribution (normalised with scotopric vision to 1)
-    wav, viirs = np.loadtxt("Lights/viirs.dat", skiprows=1).T
-    viirs = pt.spct_norm(wav, viirs)
-    scotopic = pt.load_spct(wav, np.ones(wav.shape), "Lights/scotopic.dat", 1)
-    photopic = pt.load_spct(wav, np.ones(wav.shape), "Lights/photopic.dat", 1)
+    norm_spectrum = SPD.from_txt("Lights/photopic.dat").normalize()
+    wav = norm_spectrum.wavelengths
+    viirs = (
+        SPD.from_txt("Lights/viirs.dat").interpolate(norm_spectrum).normalize()
+    )
 
-    ratio_ps = 1.0
-    norm_spectrum = ratio_ps * photopic + (1 - ratio_ps) * scotopic
-
-    spct_files = glob("Lights/*.spct")
     spct = {
-        os.path.basename(s)
-        .rsplit(".", 1)[0]
-        .split("_", 1)[0]: pt.load_spct(wav, norm_spectrum, s)
-        for s in spct_files
+        parse_key(fname): SPD.from_txt(fname)
+        for fname in glob("Lights/*.spct") + glob("Lights/*.SPCT")
+    }
+    spct.update(
+        {
+            parse_key(fname): SPD.from_spdx(fname)
+            for fname in glob("Lights/*.spdx") + glob("Lights/*.SPDX")
+        }
+    )
+    spct = {
+        key: spd.interpolate(norm_spectrum).normalize(norm_spectrum)
+        for key, spd in spct.items()
     }
 
     # Make bins
@@ -129,20 +147,14 @@ def alternate(name, zones, lights):
 
     bool_array = (wav >= bins[:, 0:1]) & (wav < bins[:, 1:2])
     x = bins.mean(1).tolist()
+    bw = bins[:, 1] - bins[:, 0]
 
     out_name = params["exp_name"]
 
-    asper_files = glob("Lights/*.aster")
-    asper = {
-        os.path.basename(s).split(".", 1)[0]: np.loadtxt(s)
-        for s in asper_files
+    aster = {
+        parse_key(fname): SPD.from_aster(fname).interpolate(wav)
+        for fname in glob("Lights/*.aster") + glob("Lights/*.ASTER")
     }
-
-    for type in asper:
-        wl, refl = asper[type].T
-        wl *= 1000.0
-        refl /= 100.0
-        asper[type] = interp(wl, refl, bounds_error=False, fill_value=0.0)(wav)
 
     sum_coeffs = sum(
         params["reflectance"][type] for type in params["reflectance"]
@@ -151,19 +163,15 @@ def alternate(name, zones, lights):
         sum_coeffs = 1.0
 
     refl = sum(
-        asper[type] * coeff / sum_coeffs
+        aster[type].data * coeff / sum_coeffs
         for type, coeff in params["reflectance"].items()
     )
 
     reflect = [np.mean(refl[mask]) for mask in bool_array]
+    nspct = [np.mean(norm_spectrum.data[mask] for mask in bool_array)]
 
     with open(dirname + "/refl.lst", "w") as zfile:
         zfile.write("\n".join(["%.06g" % n for n in reflect]) + "\n")
-
-    # Photopic/scotopic spectrum
-    nspct = ratio_ps * photopic + (1 - ratio_ps) * scotopic
-    nspct = nspct / np.sum(nspct)
-    nspct = [np.mean(nspct[mask]) for mask in bool_array]
 
     for aero_file in glob("Inputs/*.txt"):
         shutil.copy(aero_file, aero_file.replace("Inputs", dirname))
@@ -171,7 +179,7 @@ def alternate(name, zones, lights):
     shutil.copy("srtm.hdf5", dirname)
 
     with open(dirname + "/wav.lst", "w") as zfile:
-        zfile.write("\n".join(map(str, x)) + "\n")
+        zfile.write("".join("%g %g\n" % (w, b) for w, b in zip(x, bw)))
 
     if params["zones_inventory"] is not None:
         dir_name = ".Inputs_zones/"
@@ -201,14 +209,14 @@ def alternate(name, zones, lights):
             ds = MSD.Open(fname)
             wl = int(fname.split("_")[1])
             for i, dat in enumerate(ds):
-                oldlumlp[i] += dat * nspct[x.index(wl)] * dl
+                oldlumlp[i] += dat * nspct[x.index(wl)]
 
         newlumlp = MSD.from_domain("domain.ini")
         for fname in glob(os.path.join(dir_name, "*lumlp*")):
             ds = MSD.Open(fname)
             wl = int(fname.split("_")[2])
             for i, dat in enumerate(ds):
-                newlumlp[i] += dat * nspct[x.index(wl)] * dl
+                newlumlp[i] += dat * nspct[x.index(wl)]
 
         ratio = MSD.from_domain("domain.ini")
         for i in range(len(ratio)):
