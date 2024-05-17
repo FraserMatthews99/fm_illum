@@ -10,8 +10,6 @@ Cite: Martin Aube martin.aube@cegepsherbrooke.qc.ca
 You need a fortran compiler installed in your system
 Please dont forget to set the F77 variable in the makeILLUMINA script according to that compiler
 
-### Download the code:
-git clone https://github.com/EGC-PENV/illumina_penv
 
 ### Compile the code:
 cd illumina_penv
